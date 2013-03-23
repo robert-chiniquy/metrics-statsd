@@ -25,7 +25,7 @@ import org.slf4j.LoggerFactory;
 import java.io.*;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
-import java.net.InetSocketAddress;
+import java.net.InetAddress;
 import java.util.Locale;
 import java.util.Map;
 import java.util.SortedMap;
@@ -46,6 +46,7 @@ public class StatsdReporter extends AbstractPollingReporter implements MetricPro
     protected Writer writer;
     protected ByteArrayOutputStream outputData;
 
+    private boolean prependNewline = false;
     private boolean printVMMetrics = true;
 
     public interface UDPSocketProvider {
@@ -113,6 +114,7 @@ public class StatsdReporter extends AbstractPollingReporter implements MetricPro
         try {
             socket = this.socketProvider.get();
             outputData.reset();
+            prependNewline = false;
             writer = new BufferedWriter(new OutputStreamWriter(this.outputData));
 
             final long epoch = clock.time() / 1000;
@@ -304,8 +306,11 @@ public class StatsdReporter extends AbstractPollingReporter implements MetricPro
                 statTypeStr = "ms";
                 break;
         }
-        
+
         try {
+            if (prependNewline) {
+                writer.write("\n");
+            }
             if (!prefix.isEmpty()) {
                 writer.write(prefix);
             }
@@ -314,7 +319,7 @@ public class StatsdReporter extends AbstractPollingReporter implements MetricPro
             writer.write(value);
             writer.write("|");
             writer.write(statTypeStr);
-            writer.write('\n');
+            prependNewline = true;
             writer.flush();
         } catch (IOException e) {
             LOG.error("Error sending to Graphite:", e);
@@ -333,19 +338,25 @@ public class StatsdReporter extends AbstractPollingReporter implements MetricPro
 
         @Override
         public DatagramSocket get() throws Exception {
-            return new DatagramSocket(new InetSocketAddress(this.host, this.port));
+            return new DatagramSocket();
         }
-        
+
         @Override
         public DatagramPacket newPacket(ByteArrayOutputStream out) {
             byte[] dataBuffer;
+
             if (out != null) {
                 dataBuffer = out.toByteArray();
             }
             else {
                 dataBuffer = new byte[8192];
             }
-            return new DatagramPacket(dataBuffer, dataBuffer.length);
+
+            try {
+                return new DatagramPacket(dataBuffer, dataBuffer.length, InetAddress.getByName(this.host), this.port);
+            } catch (Exception e) {
+                return null;
+            }
         }
     }
 }
